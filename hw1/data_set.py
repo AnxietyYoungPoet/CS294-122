@@ -13,8 +13,9 @@ class Expert_data(object):
     self.obs = data['observations']
     self.acts = data['actions']
     self.acts = self.acts.reshape(len(self.acts), -1)
+    self.rewards = data['ep_ret']
     self.size = len(self.obs)
-    print(f'total transitions: {self.size}')
+    print(f'total transitions: {self.size}, rewards: {np.mean(self.rewards)}+-{np.std(self.rewards)}')
     indexes = [i for i in range(self.size)]
     np.random.shuffle(indexes)
     self.obs = self.obs[indexes]

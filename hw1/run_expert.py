@@ -37,7 +37,7 @@ def main():
         tf_util.initialize()
 
         env = gym.make(args.envname)
-        max_steps = args.max_timesteps or env.spec.timestep_limit
+        max_steps = args.max_timesteps or env.spec.max_episode_steps
 
         returns = []
         observations = []
@@ -68,8 +68,8 @@ def main():
         print('std of return', np.std(returns))
 
         expert_data = {'observations': np.array(observations),
-                       'actions': np.array(actions)}
-
+                       'actions': np.array(actions),
+                       'ep_ret': np.array(returns)}
         with open(os.path.join('expert_data', args.envname + '.pkl'), 'wb') as f:
             pickle.dump(expert_data, f, pickle.HIGHEST_PROTOCOL)
 
