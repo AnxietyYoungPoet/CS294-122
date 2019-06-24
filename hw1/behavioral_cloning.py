@@ -1,7 +1,6 @@
 import gym
 import tensorflow as tf
 import numpy as np
-import pickle
 import core
 from data_set import Expert_data
 import time
