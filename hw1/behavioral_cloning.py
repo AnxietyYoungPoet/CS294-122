@@ -9,7 +9,7 @@ import time
 
 class BC(object):
   def __init__(self, env_fn, fpath, epochs=50, batch_size=64, lr=1e-3,
-               max_ep_len=1000, ac_kwargs=dict(), save_freq=50):
+               max_ep_len=1000, ac_kwargs=dict(), save_freq=50, exp_name=''):
     self.env = env_fn()
     self.test_env = env_fn()
     self.expert_data = Expert_data(fpath)
@@ -18,6 +18,7 @@ class BC(object):
     self.lr = lr
     self.max_ep_len = max_ep_len
     self.save_freq = save_freq
+    self.exp_name = exp_name
 
     self.obs_dim = self.env.observation_space.shape[0]
     self.act_dim = self.env.action_space.shape[0]
@@ -61,7 +62,10 @@ class BC(object):
 
   def save_model(self):
     import os
-    model_path = os.path.join('models', 'bc', 'model.ckpt')
+    model_output = os.path.join('models', 'bc', self.exp_name)
+    if not os.path.exists(model_output):
+      os.makedirs(model_output)
+    model_path = os.path.join(model_output, 'model.ckpt')
     self.saver.save(self.sess, model_path)
 
   def train(self):
@@ -90,7 +94,7 @@ class BC(object):
 
   def eval(self):
     import os
-    model_output = os.path.join('models', 'bc')
+    model_output = os.path.join('models', 'bc', self.exp_name)
     ckpt = tf.train.get_checkpoint_state(model_output)
     self.saver.restore(self.sess, ckpt.model_checkpoint_path)
     rewards_mean, rewards_std, ep_len_mean, ep_len_std = self.test_agent()
@@ -120,7 +124,7 @@ def main():
 
   env_fn = lambda: gym.make(args.env_name)
   bc = BC(env_fn, args.expert_data, epochs=args.epochs, batch_size=args.batch_size,
-          lr=args.lr, ac_kwargs=ac_kwargs)
+          lr=args.lr, ac_kwargs=ac_kwargs, exp_name=args.env_name)
   bc.run()
 
 
