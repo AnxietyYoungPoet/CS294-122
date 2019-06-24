@@ -80,7 +80,7 @@ class BC(object):
         loss, _ = self.sess.run(
           [self.loss, self.train_pi_op], feed_dict={self.x_ph: bacth_obs, self.a_ph: batch_acts})
         ep_loss += loss
-        if t > 0 and t % self.save_freq == 0:
+        if (t > 0 and t % self.save_freq == 0) or t == steps_per_epoch - 1:
           obs = self.expert_data.obs_eval
           acts = self.expert_data.acts_eval
           test_loss = self.sess.run(self.loss, feed_dict={self.x_ph: obs, self.a_ph: acts})
