@@ -12,17 +12,19 @@ import time
 import inspect
 from multiprocessing import Process
 
-#============================================================================================#
+# ============================================================================================#
 # Utilities
-#============================================================================================#
+# ============================================================================================#
 
-#========================================================================================#
+# ========================================================================================#
 #                           ----------PROBLEM 2----------
-#========================================================================================#  
+# ========================================================================================#  
+
+
 def build_mlp(input_placeholder, output_size, scope, n_layers, size, activation=tf.tanh, output_activation=None):
     """
         Builds a feedforward neural network
-        
+
         arguments:
             input_placeholder: placeholder variable for the state (batch_size, input_size)
             output_size: size of the output layer
@@ -38,11 +40,17 @@ def build_mlp(input_placeholder, output_size, scope, n_layers, size, activation=
         Hint: use tf.layers.dense    
     """
     # YOUR CODE HERE
-    raise NotImplementedError
+    x = input_placeholder
+    with tf.variable_scope(scope):
+        for _ in range(n_layers):
+            x = tf.layers.dense(x, size, activation=activation)
+        output_placeholder = tf.layers.dense(x, output_size, activation=output_activation)
     return output_placeholder
+
 
 def pathlength(path):
     return len(path["reward"])
+
 
 def setup_logger(logdir, locals_):
     # Configure output directory for logging
@@ -55,6 +63,7 @@ def setup_logger(logdir, locals_):
 #============================================================================================#
 # Policy Gradient
 #============================================================================================#
+
 
 class Agent(object):
     def __init__(self, computation_graph_args, sample_trajectory_args, estimate_return_args):
@@ -78,8 +87,8 @@ class Agent(object):
     def init_tf_sess(self):
         tf_config = tf.ConfigProto(inter_op_parallelism_threads=1, intra_op_parallelism_threads=1) 
         self.sess = tf.Session(config=tf_config)
-        self.sess.__enter__() # equivalent to `with self.sess:`
-        tf.global_variables_initializer().run() #pylint: disable=E1101
+        self.sess.__enter__()  # equivalent to `with self.sess:`
+        tf.global_variables_initializer().run()  # pylint: disable=E1101
 
     #========================================================================================#
     #                           ----------PROBLEM 2----------
@@ -95,7 +104,6 @@ class Agent(object):
                 sy_ac_na: placeholder for actions
                 sy_adv_n: placeholder for advantages
         """
-        raise NotImplementedError
         sy_ob_no = tf.placeholder(shape=[None, self.ob_dim], name="ob", dtype=tf.float32)
         if self.discrete:
             sy_ac_na = tf.placeholder(shape=[None], name="ac", dtype=tf.int32) 
@@ -104,7 +112,6 @@ class Agent(object):
         # YOUR CODE HERE
         sy_adv_n = None
         return sy_ob_no, sy_ac_na, sy_adv_n
-
 
     #========================================================================================#
     #                           ----------PROBLEM 2----------
@@ -594,9 +601,9 @@ def train_PG(
     # tensorflow: config, session, variable initialization
     agent.init_tf_sess()
 
-    #========================================================================================#
+    # ========================================================================================#
     # Training Loop
-    #========================================================================================#
+    # ========================================================================================#
 
     total_timesteps = 0
     for itr in range(n_iter):
@@ -662,8 +669,8 @@ def main():
     processes = []
 
     for e in range(args.n_experiments):
-        seed = args.seed + 10*e
-        print('Running experiment with seed %d'%seed)
+        seed = args.seed + 10 * e
+        print('Running experiment with seed %d' % seed)
 
         def train_func():
             train_PG(
@@ -676,13 +683,13 @@ def main():
                 learning_rate=args.learning_rate,
                 reward_to_go=args.reward_to_go,
                 animate=args.render,
-                logdir=os.path.join(logdir,'%d'%seed),
+                logdir=os.path.join(logdir, '%d' % seed),
                 normalize_advantages=not(args.dont_normalize_advantages),
                 nn_baseline=args.nn_baseline, 
                 seed=seed,
                 n_layers=args.n_layers,
                 size=args.size
-                )
+            )
         # # Awkward hacky process runs, because Tensorflow does not like
         # # repeatedly calling train_PG in the same thread.
         p = Process(target=train_func, args=tuple())
@@ -694,6 +701,7 @@ def main():
 
     for p in processes:
         p.join()
+
 
 if __name__ == "__main__":
     main()
