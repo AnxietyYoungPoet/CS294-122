@@ -5,6 +5,7 @@ import tensorflow as tf
 import numpy as np
 import random
 
+
 def huber_loss(x, delta=1.0):
     # https://en.wikipedia.org/wiki/Huber_loss
     return tf.where(
@@ -12,6 +13,7 @@ def huber_loss(x, delta=1.0):
         tf.square(x) * 0.5,
         delta * (tf.abs(x) - 0.5 * delta)
     )
+
 
 def sample_n_unique(sampling_f, n):
     """Helper function. Given a function `sampling_f` that returns
@@ -24,10 +26,12 @@ def sample_n_unique(sampling_f, n):
             res.append(candidate)
     return res
 
+
 class Schedule(object):
     def value(self, t):
         """Value of the schedule at time t"""
         raise NotImplementedError()
+
 
 class ConstantSchedule(object):
     def __init__(self, value):
@@ -43,8 +47,10 @@ class ConstantSchedule(object):
         """See Schedule.value"""
         return self._v
 
+
 def linear_interpolation(l, r, alpha):
     return l + alpha * (r - l)
+
 
 class PiecewiseSchedule(object):
     def __init__(self, endpoints, interpolation=linear_interpolation, outside_value=None):

@@ -22,8 +22,11 @@ class NoopResetEnv(gym.Wrapper):
         self.env.reset()
         noops = np.random.randint(1, self.noop_max + 1)
         for _ in range(noops):
-            obs, _, _, _ = self.env.step(0)
+            obs, _, done, _ = self.env.step(0)
+            if done:
+                obs = self.env.reset()
         return obs
+
 
 class FireResetEnv(gym.Wrapper):
     def __init__(self, env=None):
@@ -38,6 +41,7 @@ class FireResetEnv(gym.Wrapper):
         obs, _, _, _ = self.env.step(2)
         return obs
 
+
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env=None):
         """Make end-of-life == end-of-episode, but only reset on true game over.
@@ -45,7 +49,7 @@ class EpisodicLifeEnv(gym.Wrapper):
         """
         super(EpisodicLifeEnv, self).__init__(env)
         self.lives = 0
-        self.was_real_done  = True
+        self.was_real_done = True
         self.was_real_reset = False
 
     def _step(self, action):
@@ -77,20 +81,24 @@ class EpisodicLifeEnv(gym.Wrapper):
         self.lives = self.env.unwrapped.ale.lives()
         return obs
 
+
 class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env=None, skip=4):
         """Return only every `skip`-th frame"""
         super(MaxAndSkipEnv, self).__init__(env)
         # most recent raw observations (for max pooling across time steps)
-        self._obs_buffer = deque(maxlen=2)
-        self._skip       = skip
+        self._obs_buffer = np.zeros((2,) + env.observation_space.shape, dtype=env.observation_space.dtype)
+        self._skip = skip
 
     def _step(self, action):
         total_reward = 0.0
         done = None
-        for _ in range(self._skip):
+        for i in range(self._skip):
             obs, reward, done, info = self.env.step(action)
-            self._obs_buffer.append(obs)
+            if i == self._skip - 2:
+                self._obs_buffer[0] = obs
+            if i == self._skip - 1:
+                self._obs_buffer[0] = obs
             total_reward += reward
             if done:
                 break
@@ -106,13 +114,15 @@ class MaxAndSkipEnv(gym.Wrapper):
         self._obs_buffer.append(obs)
         return obs
 
+
 def _process_frame84(frame):
     img = np.reshape(frame, [210, 160, 3]).astype(np.float32)
     img = img[:, :, 0] * 0.299 + img[:, :, 1] * 0.587 + img[:, :, 2] * 0.114
-    resized_screen = cv2.resize(img, (84, 110),  interpolation=cv2.INTER_LINEAR)
+    resized_screen = cv2.resize(img, (84, 110), interpolation=cv2.INTER_LINEAR)
     x_t = resized_screen[18:102, :]
     x_t = np.reshape(x_t, [84, 84, 1])
     return x_t.astype(np.uint8)
+
 
 class ProcessFrame84(gym.Wrapper):
     def __init__(self, env=None):
@@ -126,10 +136,59 @@ class ProcessFrame84(gym.Wrapper):
     def _reset(self):
         return _process_frame84(self.env.reset())
 
+
+class WrapFrame(gym.ObservationWrapper):
+    def __init__(self, env):
+        super(WrapFrame, self).__init__(env)
+        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 1), dtype=env.observation_space.dtype)
+
+    def observation(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        frame = frame[31: 195]
+        frame = cv2.resize(frame, (84, 84), interpolation=cv2.INTER_AREA)
+        return frame[:, :, None]
+
+
+class FrameStack(gym.Wrapper):
+    def __init__(self, env, n_frames=4):
+        super(FrameStack, self).__init__(env)
+        self.n_frames = n_frames
+        self.frames = deque([], maxlen=n_frames)
+        shp = env.observation_space.shape
+        self.observation_space = spaces.Box(low=0, high=255, shape=(shp[0], shp[1], shp[2] * n_frames), dtype=env.observation_space.dtype)
+
+    def reset(self):
+        obs = self.env.reset()
+        for _ in range(self.n_frames):
+            self.frames.append(obs)
+        return self._get_ob()
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self.frames.append(obs)
+        return self._get_ob(), reward, done, info
+
+    def _get_ob(self):
+        assert len(self.frames) == self.n_frames
+        return LazyFrames(list(self.frames))
+
+
+class LazyFrames(object):
+    def __init__(self, frames):
+        self._frames = frames
+
+    def __array__(self, dtype=None):
+        out = np.concatenate(self._frames, axis=2)
+        if dtype is not None:
+            out = out.astype(dtype)
+        return out
+
+
 class ClippedRewardsWrapper(gym.Wrapper):
     def _step(self, action):
         obs, reward, done, info = self.env.step(action)
         return obs, np.sign(reward), done, info
+
 
 def wrap_deepmind_ram(env):
     env = EpisodicLifeEnv(env)
@@ -139,6 +198,7 @@ def wrap_deepmind_ram(env):
         env = FireResetEnv(env)
     env = ClippedRewardsWrapper(env)
     return env
+
 
 def wrap_deepmind(env):
     assert 'NoFrameskip' in env.spec.id
