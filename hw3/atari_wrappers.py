@@ -129,11 +129,11 @@ class ProcessFrame84(gym.Wrapper):
         super(ProcessFrame84, self).__init__(env)
         self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 1))
 
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         return _process_frame84(obs), reward, done, info
 
-    def _reset(self):
+    def reset(self):
         return _process_frame84(self.env.reset())
 
 

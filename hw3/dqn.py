@@ -204,6 +204,7 @@ class QLearner(object):
     self.mean_episode_reward = -float('nan')
     self.best_mean_episode_reward = -float('inf')
     self.last_obs = self.env.reset()
+    print(self.last_obs.shape)
     self.log_every_n_steps = 10000
 
     self.start_time = None
@@ -248,8 +249,11 @@ class QLearner(object):
     # YOUR CODE HERE
     idx = self.replay_buffer.store_frame(self.last_obs)
     state = self.replay_buffer.encode_recent_observation()
-    q_scores = self.session.run(self.q, feed_dict={self.obs_t_ph: state[None]})[0]
-    best_action = np.argmax(q_scores)
+    if not self.model_initialized:
+      best_action = self.env.action_space.sample()
+    else:
+      q_scores = self.session.run(self.q, feed_dict={self.obs_t_ph: state[None]})[0]
+      best_action = np.argmax(q_scores)
     epsilon = self.exploration.value(self.t)
     if np.random.rand() < epsilon:
       action = self.env.action_space.sample()
@@ -308,7 +312,7 @@ class QLearner(object):
       # YOUR CODE HERE
       batch_data = self.replay_buffer.sample(self.batch_size)
       obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = batch_data
-      lr = self.optimizer_spec.lr_schedule.value(t)
+      lr = self.optimizer_spec.lr_schedule.value(self.t)
       fd = {
         self.obs_t_ph: obs_batch,
         self.act_t_ph: act_batch,
@@ -317,11 +321,13 @@ class QLearner(object):
         self.done_mask_ph: done_mask,
         self.learning_rate: lr,
       }
-      initialize_interdependent_variables(self.sess, tf.global_variables(), fd)
+      if not self.model_initialized:
+        initialize_interdependent_variables(self.session, tf.global_variables(), fd)
+        self.model_initialized = True
       if self.num_param_updates % self.target_update_freq == 0:
-        self.sess.run(self.target_update_freq_fn)
+        self.session.run(self.update_target_fn)
         self.num_param_updates = 0
-      td_error, _ = self.sess.run([self.total_error, self.train_fn], feed_dict=fd)
+      td_error, _ = self.session.run([self.total_error, self.train_fn], feed_dict=fd)
 
       self.num_param_updates += 1
 
