@@ -123,6 +123,7 @@ def main():
     seed = random.randint(0, 9999)
     print('random seed = %d' % seed)
     env = get_env(task, seed)
+    obs = env.reset()
     session = get_session()
     atari_learn(env, session, num_timesteps=2e8)
 
