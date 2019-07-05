@@ -89,14 +89,14 @@ class QLearner(object):
         https://papers.nips.cc/paper/3964-double-q-learning.pdf
     """
     assert type(env.observation_space) == gym.spaces.Box
-    assert type(env.action_space)      == gym.spaces.Discrete
+    assert type(env.action_space) == gym.spaces.Discrete
 
     self.target_update_freq = target_update_freq
     self.optimizer_spec = optimizer_spec
     self.batch_size = batch_size
     self.learning_freq = learning_freq
     self.learning_starts = learning_starts
-    self.stopping_criterion = stopping_criterion
+    self.stopping_criterion = stopping_criterion  # a function of env and current state
     self.env = env
     self.session = session
     self.exploration = exploration
@@ -116,28 +116,28 @@ class QLearner(object):
 
     # set up placeholders
     # placeholder for current observation (or state)
-    self.obs_t_ph              = tf.placeholder(
+    self.obs_t_ph = tf.placeholder(
         tf.float32 if lander else tf.uint8, [None] + list(input_shape))
     # placeholder for current action
-    self.act_t_ph              = tf.placeholder(tf.int32,   [None])
+    self.act_t_ph = tf.placeholder(tf.int32, [None])
     # placeholder for current reward
-    self.rew_t_ph              = tf.placeholder(tf.float32, [None])
+    self.rew_t_ph = tf.placeholder(tf.float32, [None])
     # placeholder for next observation (or state)
-    self.obs_tp1_ph            = tf.placeholder(
+    self.obs_tp1_ph = tf.placeholder(
         tf.float32 if lander else tf.uint8, [None] + list(input_shape))
     # placeholder for end of episode mask
     # this value is 1 if the next state corresponds to the end of an episode,
     # in which case there is no Q-value at the next state; at the end of an
     # episode, only the current state reward contributes to the target, not the
     # next state Q-value (i.e. target is just rew_t_ph, not rew_t_ph + gamma * q_tp1)
-    self.done_mask_ph          = tf.placeholder(tf.float32, [None])
+    self.done_mask_ph = tf.placeholder(tf.float32, [None])
 
     # casting to float on GPU ensures lower data transfer times.
     if lander:
       obs_t_float = self.obs_t_ph
       obs_tp1_float = self.obs_tp1_ph
     else:
-      obs_t_float   = tf.cast(self.obs_t_ph,   tf.float32) / 255.0
+      obs_t_float = tf.cast(self.obs_t_ph, tf.float32) / 255.0
       obs_tp1_float = tf.cast(self.obs_tp1_ph, tf.float32) / 255.0
 
     # Here, you should fill in your own code to compute the Bellman error. This requires
@@ -161,9 +161,16 @@ class QLearner(object):
 
     # YOUR CODE HERE
     self.q = q_func(obs_t_float, self.num_actions, 'q_func', reuse=False)
-    self.target_q = q_func(obs_tp1_float, self.num_actions, 'target_q_func', reuse=False)
+    if double_q:
+      self.double_q = q_func(self.obs_tp1_ph, self.num_actions, 'q_func', reuse=True)
+    self.target_q = q_func(self.obs_tp1_float, self.num_actions, 'target_q_func', reuse=False)
     not_done = 1 - tf.cast(self.done_mask_ph, tf.float32)
-    q_target = tf.stop_gradient(self.rew_t_ph + not_done * gamma * tf.reduce_max(self.target_q, axis=1)) 
+    if double_q:
+      best_nest_a = tf.argmax(self.double_q, axis=1)
+      q_tp1_best = tf.reduce_sum(self.target_q * tf.one_hot(best_nest_a, num_actions), axis=1)
+    else:
+      q_tp1_best = tf.reduce_max(self.target_q, axis=1)
+    q_target = tf.stop_gradient(self.rew_t_ph + not_done * gamma * q_tp1_best)
     q_eval = tf.reduce_sum(tf.one_hot(self.act_t_ph, num_actions) * self.q, axis=1)
     td_error = q_eval - q_target
     self.total_error = tf.reduce_mean(huber_loss(td_error))
@@ -180,7 +187,7 @@ class QLearner(object):
 
     # update_target_fn will be called periodically to copy Q network to target Q network
     update_target_fn = []
-    for var, var_target in zip(sorted(q_func_vars,        key=lambda v: v.name),
+    for var, var_target in zip(sorted(q_func_vars, key=lambda v: v.name),
                                sorted(target_q_func_vars, key=lambda v: v.name)):
         update_target_fn.append(var_target.assign(var))
     self.update_target_fn = tf.group(*update_target_fn)
@@ -194,7 +201,7 @@ class QLearner(object):
     ###############
     self.model_initialized = False
     self.num_param_updates = 0
-    self.mean_episode_reward      = -float('nan')
+    self.mean_episode_reward = -float('nan')
     self.best_mean_episode_reward = -float('inf')
     self.last_obs = self.env.reset()
     self.log_every_n_steps = 10000
@@ -249,16 +256,20 @@ class QLearner(object):
     else:
       action = best_action
     obs, reward, done, info = self.env.step(action)
+    if done:
+      obs = self.env.reset()
     self.replay_buffer.store_effect(idx, action, reward, done)
+    self.last_obs = obs
 
   def update_model(self):
     ### 3. Perform experience replay and train the network.
     # note that this is only done if the replay buffer contains enough samples
     # for us to learn something useful -- until then, the model will not be
     # initialized and random actions should be taken
-    if (self.t > self.learning_starts and \
-        self.t % self.learning_freq == 0 and \
-        self.replay_buffer.can_sample(self.batch_size)):
+    if (
+      self.t > self.learning_starts and
+      self.t % self.learning_freq == 0 and
+      self.replay_buffer.can_sample(self.batch_size)):
       # Here, you should perform training. Training consists of four steps:
       # 3.a: use the replay buffer to sample a batch of transitions (see the
       # replay buffer code for function definition, each batch that you sample
@@ -295,6 +306,22 @@ class QLearner(object):
       #####
 
       # YOUR CODE HERE
+      batch_data = self.replay_buffer.sample(self.batch_size)
+      obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = batch_data
+      lr = self.optimizer_spec.lr_schedule.value(t)
+      fd = {
+        self.obs_t_ph: obs_batch,
+        self.act_t_ph: act_batch,
+        self.rew_t_ph: rew_batch,
+        self.obs_tp1_ph: next_obs_batch,
+        self.done_mask_ph: done_mask,
+        self.learning_rate: lr,
+      }
+      initialize_interdependent_variables(self.sess, tf.global_variables(), fd)
+      if self.num_param_updates % self.target_update_freq == 0:
+        self.sess.run(self.target_update_freq_fn)
+        self.num_param_updates = 0
+      td_error, _ = self.sess.run([self.total_error, self.train_fn], feed_dict=fd)
 
       self.num_param_updates += 1
 
@@ -326,6 +353,7 @@ class QLearner(object):
       with open(self.rew_file, 'wb') as f:
         pickle.dump(episode_rewards, f, pickle.HIGHEST_PROTOCOL)
 
+
 def learn(*args, **kwargs):
   alg = QLearner(*args, **kwargs)
   while not alg.stopping_criterion_met():
@@ -335,4 +363,3 @@ def learn(*args, **kwargs):
     # observation
     alg.update_model()
     alg.log_progress()
-
